@@ -339,51 +339,58 @@ production:
 
             database = migration_data.get("database", "").strip() or self.db.database
 
-            # Build qualified table identifier for tracking
-            qualified_name = f"{database}.{table_name}" if database else table_name
-
-            # Skip if we've already processed this table
-            if qualified_name in processed_tables:
-                continue
+            # Get additional objects declared in the migration via 'includes' field
+            # This allows migrations to declare multiple objects they create
+            includes = migration_data.get("includes", [])
+            if isinstance(includes, str):
+                includes = [includes]
+            objects_to_dump = [table_name] + includes
 
             # Get database objects from the specified database
             tables = self.db.get_database_tables(database)
             materialized_views = self.db.get_database_materialized_views(database)
             dictionaries = self.db.get_database_dictionaries(database)
 
-            # Check tables first
-            for table in tables:
-                if table[0] == table_name:
-                    # Use qualified name in SHOW CREATE query when database is specified
-                    table_ref = f"{database}.{table_name}" if database else table_name
-                    create_stmt = self.db.client.execute(
-                        f"SHOW CREATE TABLE {table_ref}"
-                    )[0][0]
-                    table_statements.append(create_stmt)
-                    processed_tables.add(qualified_name)
-                    break
+            for obj_name in objects_to_dump:
+                # Build qualified identifier for tracking
+                qualified_name = f"{database}.{obj_name}" if database else obj_name
 
-            # Then materialized views
-            for mv in materialized_views:
-                if mv[0] == table_name:
-                    mv_ref = f"{database}.{table_name}" if database else table_name
-                    create_stmt = self.db.client.execute(f"SHOW CREATE VIEW {mv_ref}")[
-                        0
-                    ][0]
-                    mv_statements.append(create_stmt)
-                    processed_tables.add(qualified_name)
-                    break
+                # Skip if we've already processed this object
+                if qualified_name in processed_tables:
+                    continue
 
-            # Finally dictionaries
-            for ch_dict in dictionaries:
-                if ch_dict[0] == table_name:
-                    dict_ref = f"{database}.{table_name}" if database else table_name
-                    create_stmt = self.db.client.execute(
-                        f"SHOW CREATE DICTIONARY {dict_ref}"
-                    )[0][0]
-                    dict_statements.append(create_stmt)
-                    processed_tables.add(qualified_name)
-                    break
+                # Check tables first
+                for table in tables:
+                    if table[0] == obj_name:
+                        table_ref = f"{database}.{obj_name}" if database else obj_name
+                        create_stmt = self.db.client.execute(
+                            f"SHOW CREATE TABLE {table_ref}"
+                        )[0][0]
+                        table_statements.append(create_stmt)
+                        processed_tables.add(qualified_name)
+                        break
+
+                # Then materialized views
+                for mv in materialized_views:
+                    if mv[0] == obj_name:
+                        mv_ref = f"{database}.{obj_name}" if database else obj_name
+                        create_stmt = self.db.client.execute(f"SHOW CREATE VIEW {mv_ref}")[
+                            0
+                        ][0]
+                        mv_statements.append(create_stmt)
+                        processed_tables.add(qualified_name)
+                        break
+
+                # Finally dictionaries
+                for ch_dict in dictionaries:
+                    if ch_dict[0] == obj_name:
+                        dict_ref = f"{database}.{obj_name}" if database else obj_name
+                        create_stmt = self.db.client.execute(
+                            f"SHOW CREATE DICTIONARY {dict_ref}"
+                        )[0][0]
+                        dict_statements.append(create_stmt)
+                        processed_tables.add(qualified_name)
+                        break
 
         # Write schema file
         with open("ch/schema.sql", "w") as f:
