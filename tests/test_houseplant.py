@@ -704,3 +704,135 @@ def test_migrate_down_with_env_vars(houseplant, test_migration_with_env_vars, mo
     expected_sql = "DROP TABLE events ON CLUSTER 'my_cluster'"
 
     mock_execute.assert_called_once_with(expected_sql, None)
+
+
+@pytest.fixture
+def skip_envs_migrations(tmp_path):
+    """Three migrations where the middle one has skip_envs: [production]."""
+    migrations_dir = tmp_path / "ch/migrations"
+    migrations_dir.mkdir(parents=True)
+
+    migration1 = migrations_dir / "20240101000000_create_users.yml"
+    migration2 = migrations_dir / "20240102000000_add_index.yml"
+    migration3 = migrations_dir / "20240103000000_add_column.yml"
+
+    migration1.write_text("""version: "20240101000000"
+name: create_users
+table: users
+
+development: &development
+  up: |
+    CREATE TABLE users (id UInt32) ENGINE = MergeTree() ORDER BY id
+  down: |
+    DROP TABLE users
+
+production:
+  <<: *development
+""")
+
+    migration2.write_text("""version: "20240102000000"
+name: add_index
+table: users
+skip_envs:
+  - production
+
+development: &development
+  up: |
+    ALTER TABLE users ADD INDEX idx_name name TYPE bloom_filter
+  down: |
+    ALTER TABLE users DROP INDEX idx_name
+
+production:
+  <<: *development
+""")
+
+    migration3.write_text("""version: "20240103000000"
+name: add_column
+table: users
+
+development: &development
+  up: |
+    ALTER TABLE users ADD COLUMN email String
+  down: |
+    ALTER TABLE users DROP COLUMN email
+
+production:
+  <<: *development
+""")
+
+    os.chdir(tmp_path)
+    return ("20240101000000", "20240102000000", "20240103000000")
+
+
+def test_migrate_up_skips_deferred_migration(houseplant, skip_envs_migrations, mocker):
+    """migrate_up should skip migrations where current env is in skip_envs,
+    not execute SQL, not mark as applied, but continue to subsequent migrations."""
+    houseplant.env = "production"
+    mock_execute = mocker.patch.object(houseplant.db, "execute_migration")
+    mock_mark_applied = mocker.patch.object(houseplant.db, "mark_migration_applied")
+    mocker.patch.object(houseplant.db, "get_applied_migrations", return_value=[])
+
+    houseplant.migrate_up()
+
+    # Migration 1 and 3 should be executed, migration 2 should be skipped
+    assert mock_execute.call_count == 2
+    assert mock_mark_applied.call_count == 2
+
+    # Verify migration 2 (add_index) was NOT applied
+    applied_versions = [call.args[0] for call in mock_mark_applied.call_args_list]
+    assert "20240101000000" in applied_versions
+    assert "20240102000000" not in applied_versions
+    assert "20240103000000" in applied_versions
+
+
+def test_migrate_up_does_not_skip_in_other_envs(
+    houseplant, skip_envs_migrations, mocker
+):
+    """skip_envs: [production] should NOT affect development environment."""
+    houseplant.env = "development"
+    mock_execute = mocker.patch.object(houseplant.db, "execute_migration")
+    mock_mark_applied = mocker.patch.object(houseplant.db, "mark_migration_applied")
+    mocker.patch.object(houseplant.db, "get_applied_migrations", return_value=[])
+
+    houseplant.migrate_up()
+
+    # All three migrations should be executed in development
+    assert mock_execute.call_count == 3
+    assert mock_mark_applied.call_count == 3
+
+
+def test_migrate_status_shows_hold_for_deferred(
+    houseplant, skip_envs_migrations, mocker, capsys
+):
+    """migrate_status should show 'hold' for migrations deferred in current env."""
+    houseplant.env = "production"
+    # Migration 1 applied, migration 2 deferred (not applied), migration 3 applied
+    mocker.patch.object(
+        houseplant.db,
+        "get_applied_migrations",
+        return_value=[("20240101000000",), ("20240103000000",)],
+    )
+
+    houseplant.migrate_status()
+
+    output = capsys.readouterr().out
+    # Migration 2 should show as hold, not down
+    assert "hold" in output
+
+
+def test_generate_includes_skip_envs_hint(houseplant, tmp_path, mocker):
+    """generate should include a commented skip_envs hint in the template."""
+    mocker.patch.object(houseplant.db, "init_migrations_table")
+    os.chdir(tmp_path)
+    os.makedirs("ch/migrations", exist_ok=True)
+
+    houseplant.generate("test_migration")
+
+    # Find the generated file
+    migration_files = os.listdir("ch/migrations")
+    assert len(migration_files) == 1
+
+    with open(f"ch/migrations/{migration_files[0]}") as f:
+        content = f.read()
+
+    assert "skip_envs" in content
