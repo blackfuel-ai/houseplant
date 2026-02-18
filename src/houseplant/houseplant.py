@@ -65,11 +65,20 @@ class Houseplant:
 
         for migration_file in migration_files:
             version = migration_file.split("_")[0]
-            status = (
-                "[green]up[/green]"
-                if version in applied_migrations
-                else "[red]down[/red]"
-            )
+
+            # Check if migration is deferred in current environment
+            with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
+                migration_data = yaml.safe_load(f)
+            skip_envs = migration_data.get("skip_envs", [])
+            is_deferred = self.env in skip_envs
+
+            if version in applied_migrations:
+                status = "[green]up[/green]"
+            elif is_deferred:
+                status = "[yellow]hold[/yellow]"
+            else:
+                status = "[red]down[/red]"
+
             name = " ".join(migration_file.split("_")[1:]).replace(".yml", "")
             table.add_row(status, version, name)
 
@@ -114,6 +123,14 @@ class Houseplant:
                 # Load and execute migration
                 with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
                     migration = yaml.safe_load(f)
+
+                # Check if migration should be deferred in current environment
+                skip_envs = migration.get("skip_envs", [])
+                if self.env in skip_envs:
+                    self.console.print(
+                        f"[yellow]⊘[/yellow] Deferred migration {migration_file}"
+                    )
+                    continue
 
                 table = migration.get("table", "").strip()
                 if not table:
@@ -263,6 +280,7 @@ class Houseplant:
 name: {migration_name}
 table:
 # database:  # Optional: specify database name (defaults to CLICKHOUSE_DB)
+# skip_envs: []  # Optional: list of environments to defer this migration in
 
 development: &development
   up: |
