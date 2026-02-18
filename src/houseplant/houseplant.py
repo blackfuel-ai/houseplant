@@ -69,7 +69,7 @@ class Houseplant:
             # Check if migration is deferred in current environment
             with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
                 migration_data = yaml.safe_load(f)
-            skip_envs = migration_data.get("skip_envs", [])
+            skip_envs = migration_data.get("skip_envs") or []
             is_deferred = self.env in skip_envs
 
             if version in applied_migrations:
@@ -125,7 +125,7 @@ class Houseplant:
                     migration = yaml.safe_load(f)
 
                 # Check if migration should be deferred in current environment
-                skip_envs = migration.get("skip_envs", [])
+                skip_envs = migration.get("skip_envs") or []
                 if self.env in skip_envs:
                     self.console.print(
                         f"[yellow]⊘[/yellow] Deferred migration {migration_file}"
