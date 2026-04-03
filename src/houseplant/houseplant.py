@@ -99,6 +99,7 @@ class Houseplant:
 
     def migrate_status(self, json_output: bool = False):
         """Show status of database migrations."""
+        # Get applied migrations from database
         applied_migrations = {
             version[0] for version in self.db.get_applied_migrations()
         }
@@ -116,6 +117,7 @@ class Houseplant:
             version = migration_file.split("_")[0]
             with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
                 migration_data = yaml.safe_load(f)
+            # Check if migration is deferred in current environment
             skip_envs = migration_data.get("skip_envs") or []
             is_deferred = self.env in skip_envs
             if version in applied_migrations:
@@ -144,6 +146,7 @@ class Houseplant:
 
     def migrate_up(self, version: str | None = None, json_output: bool = False):
         """Run migrations up to specified version."""
+        # Remove VERSION= prefix if present
         if version and version.startswith("VERSION="):
             version = version.replace("VERSION=", "")
 
@@ -155,10 +158,12 @@ class Houseplant:
                 self.console.print("[yellow]No migrations found.[/yellow]")
             return
 
+        # Get applied migrations from database
         applied_migrations = {
             version[0] for version in self.db.get_applied_migrations()
         }
 
+        # If specific version requested, verify it exists
         if version:
             matching_files = [f for f in migration_files if f.split("_")[0] == version]
             if not matching_files:
@@ -180,9 +185,11 @@ class Houseplant:
                 if migration_version in applied_migrations:
                     continue
 
+                # Load and execute migration
                 with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
                     migration = yaml.safe_load(f)
 
+                # Check if migration should be deferred in current environment
                 skip_envs = migration.get("skip_envs") or []
                 if self.env in skip_envs:
                     self._emit(events, _make_event("deferred", migration_version, migration_file), json_output)
@@ -213,6 +220,7 @@ class Houseplant:
                 if sink_table and view_definition and view_query:
                     format_args.update({"sink_table": sink_table, "view_definition": view_definition, "view_query": view_query})
 
+                # Get migration SQL based on environment
                 migration_env: dict = migration.get(self.env, {})
                 migration_sql = migration_env.get("up", "").format(**format_args).strip()
 
@@ -237,9 +245,11 @@ class Houseplant:
 
     def migrate_down(self, version: str | None = None, json_output: bool = False):
         """Roll back migrations to specified version."""
+        # Remove VERSION= prefix if present
         if version and version.startswith("VERSION="):
             version = version.replace("VERSION=", "")
 
+        # Get applied migrations from database
         applied_migrations = sorted(
             [version[0] for version in self.db.get_applied_migrations()], reverse=True
         )
@@ -258,6 +268,7 @@ class Houseplant:
                 if version and migration_version < version:
                     break
 
+                # Find corresponding migration file
                 migration_file = next(
                     (f for f in os.listdir(MIGRATIONS_DIR) if f.startswith(migration_version) and f.endswith(".yml")),
                     None,
@@ -267,6 +278,7 @@ class Houseplant:
                     self._emit(events, _make_event("warning", migration_version, f"(file not found for {migration_version})"), json_output)
                     continue
 
+                # Load and execute down migration
                 with open(os.path.join(MIGRATIONS_DIR, migration_file), "r") as f:
                     migration = yaml.safe_load(f)
 
@@ -282,6 +294,7 @@ class Houseplant:
                     return
 
                 database = migration.get("database", "").strip() or self.db.database
+                # Get migration SQL based on environment
                 migration_env = migration.get(self.env, {})
                 migration_sql = (
                     migration_env.get("down", {})
@@ -367,11 +380,16 @@ production:
     def update_schema(self):
         """Update the schema file with the current database schema."""
 
+        # Get all applied migrations in order
         applied_migrations = self.db.get_applied_migrations()
         migration_files = get_migration_files()
         latest_version = applied_migrations[-1][0] if applied_migrations else "0"
 
+        # Track processed tables to ensure first migration takes precedence
+        # Use qualified names (database.table) to avoid conflicts across databases
         processed_tables = set()
+
+        # Group statements by type
         table_statements = []
         mv_statements = []
         dict_statements = []
@@ -388,28 +406,36 @@ production:
             with open(migration_file) as f:
                 migration_data = yaml.safe_load(f)
 
+            # Extract table name and database from migration
             table_name = migration_data.get("table")
             if not table_name:
                 continue
 
             database = migration_data.get("database", "").strip() or self.db.database
+
+            # Build qualified table identifier for tracking
             qualified_name = f"{database}.{table_name}" if database else table_name
 
+            # Skip if we've already processed this table
             if qualified_name in processed_tables:
                 continue
 
+            # Get database objects from the specified database
             tables = self.db.get_database_tables(database)
             materialized_views = self.db.get_database_materialized_views(database)
             dictionaries = self.db.get_database_dictionaries(database)
 
+            # Check tables first
             for table in tables:
                 if table[0] == table_name:
+                    # Use qualified name in SHOW CREATE query when database is specified
                     table_ref = f"{database}.{table_name}" if database else table_name
                     create_stmt = self.db.client.execute(f"SHOW CREATE TABLE {table_ref}")[0][0]
                     table_statements.append(create_stmt)
                     processed_tables.add(qualified_name)
                     break
 
+            # Then materialized views
             for mv in materialized_views:
                 if mv[0] == table_name:
                     mv_ref = f"{database}.{table_name}" if database else table_name
@@ -418,6 +444,7 @@ production:
                     processed_tables.add(qualified_name)
                     break
 
+            # Finally dictionaries
             for ch_dict in dictionaries:
                 if ch_dict[0] == table_name:
                     dict_ref = f"{database}.{table_name}" if database else table_name
@@ -426,6 +453,7 @@ production:
                     processed_tables.add(qualified_name)
                     break
 
+        # Write schema file
         with open("ch/schema.sql", "w") as f:
             f.write(f"-- version: {latest_version}\n\n")
             if table_statements:
