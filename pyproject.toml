@@ -18,7 +18,10 @@ dependencies = [
   "clickhouse-driver >= 0.2.9, < 0.3",
   "pyyaml >= 6.0.2, < 6.1",
   "typer >= 0.15.0, < 1.0",
-  "python-dotenv >= 1.0.1, < 1.1",
+  # 1.2.2 is the first release without GHSA-mf9w-mj56-hr94 (symlink
+  # following in set_key). The floor is a security bound: it fails closed
+  # rather than ever resolving a vulnerable build.
+  "python-dotenv >= 1.2.2, < 2",
 ]
 
 [build-system]
