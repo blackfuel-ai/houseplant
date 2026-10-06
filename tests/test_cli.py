@@ -107,13 +107,13 @@ def test_migrate_up_command(mock_houseplant):
     # Test without version
     result = runner.invoke(app, ["migrate:up"])
     assert result.exit_code == 0
-    mock_houseplant.migrate_up.assert_called_with(None)
+    mock_houseplant.migrate_up.assert_called_with(None, json_output=False)
 
     # Test with version
     mock_houseplant.reset_mock()
     result = runner.invoke(app, ["migrate:up", "1.0"])
     assert result.exit_code == 0
-    mock_houseplant.migrate_up.assert_called_with("1.0")
+    mock_houseplant.migrate_up.assert_called_with("1.0", json_output=False)
 
 
 def test_migrate_down_command(mock_houseplant):
@@ -121,13 +121,13 @@ def test_migrate_down_command(mock_houseplant):
     # Test without version
     result = runner.invoke(app, ["migrate:down"])
     assert result.exit_code == 0
-    mock_houseplant.migrate_down.assert_called_with(None)
+    mock_houseplant.migrate_down.assert_called_with(None, json_output=False)
 
     # Test with version
     mock_houseplant.reset_mock()
     result = runner.invoke(app, ["migrate:down", "1.0"])
     assert result.exit_code == 0
-    mock_houseplant.migrate_down.assert_called_with("1.0")
+    mock_houseplant.migrate_down.assert_called_with("1.0", json_output=False)
 
 
 def test_migrate_command(mock_houseplant):
@@ -135,13 +135,13 @@ def test_migrate_command(mock_houseplant):
     # Test without version
     result = runner.invoke(app, ["migrate"])
     assert result.exit_code == 0
-    mock_houseplant.migrate.assert_called_with(None)
+    mock_houseplant.migrate.assert_called_with(None, json_output=False)
 
     # Test with version
     mock_houseplant.reset_mock()
     result = runner.invoke(app, ["migrate", "1.0"])
     assert result.exit_code == 0
-    mock_houseplant.migrate.assert_called_with("1.0")
+    mock_houseplant.migrate.assert_called_with("1.0", json_output=False)
 
 
 def test_generate_command(mock_houseplant):
