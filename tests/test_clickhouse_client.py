@@ -231,3 +231,25 @@ def test_get_database_schema(ch_client):
     assert schema["tables"][0].startswith("CREATE TABLE houseplant_test_")
     assert "test_table" in schema["tables"][0]
     assert "ENGINE = MergeTree" in schema["tables"][0]
+
+
+def test_get_sql_user_defined_functions(ch_client):
+    """SQL user-defined functions come back as their CREATE statements, by name."""
+    suffix = ch_client.database
+    names = [f"zz_udf_{suffix}", f"aa_udf_{suffix}"]
+    for name in names:
+        ch_client.client.execute(f"CREATE FUNCTION {name} AS x -> x + 1")
+    try:
+        functions = [
+            query
+            for query in ch_client.get_sql_user_defined_functions()
+            if suffix in query
+        ]
+    finally:
+        for name in names:
+            ch_client.client.execute(f"DROP FUNCTION IF EXISTS {name}")
+
+    assert functions == [
+        f"CREATE FUNCTION aa_udf_{suffix} AS x -> (x + 1)",
+        f"CREATE FUNCTION zz_udf_{suffix} AS x -> (x + 1)",
+    ]

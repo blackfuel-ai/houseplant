@@ -443,6 +443,9 @@ def test_update_schema_no_duplicates(houseplant, duplicate_migrations, mocker):
         houseplant.db, "get_database_materialized_views", return_value=[]
     )
     mocker.patch.object(houseplant.db, "get_database_dictionaries", return_value=[])
+    mocker.patch.object(
+        houseplant.db, "get_sql_user_defined_functions", return_value=[]
+    )
 
     # Mock the SHOW CREATE TABLE call
     mocker.patch.object(
@@ -467,6 +470,82 @@ def test_update_schema_no_duplicates(houseplant, duplicate_migrations, mocker):
     assert (
         table_count == 1
     ), f"Table 'events' appears {table_count} times in schema, expected 1"
+
+
+def test_update_schema_writes_functions_ahead_of_tables(
+    houseplant, test_migration, mocker
+):
+    mocker.patch.object(
+        houseplant.db,
+        "get_applied_migrations",
+        return_value=[("20240101000000",)],
+    )
+    mocker.patch.object(
+        houseplant.db, "get_database_tables", return_value=[("events",)]
+    )
+    mocker.patch.object(
+        houseplant.db, "get_database_materialized_views", return_value=[]
+    )
+    mocker.patch.object(houseplant.db, "get_database_dictionaries", return_value=[])
+    mocker.patch.object(
+        houseplant.db,
+        "get_sql_user_defined_functions",
+        return_value=[
+            "CREATE FUNCTION add_one AS x -> (x + 1)",
+            "CREATE FUNCTION label AS x -> concat('a', x)",
+        ],
+    )
+    mocker.patch.object(
+        houseplant.db.client,
+        "execute",
+        return_value=[["CREATE TABLE events\n(\n    `id` UInt32\n)\nENGINE = MergeTree"]],
+    )
+
+    houseplant.update_schema()
+
+    with open("ch/schema.sql") as f:
+        assert f.read() == (
+            "-- version: 20240101000000\n\n"
+            "-- FUNCTIONS\n\n"
+            "CREATE FUNCTION add_one AS x -> (x + 1)\n;\n\n"
+            "CREATE FUNCTION label AS x -> concat('a', x);\n\n"
+            "-- TABLES\n\n"
+            "CREATE TABLE events\n(\n    `id` UInt32\n)\nENGINE = MergeTree;\n"
+        )
+
+
+def test_update_schema_without_functions_has_no_functions_section(
+    houseplant, test_migration, mocker
+):
+    mocker.patch.object(
+        houseplant.db,
+        "get_applied_migrations",
+        return_value=[("20240101000000",)],
+    )
+    mocker.patch.object(
+        houseplant.db, "get_database_tables", return_value=[("events",)]
+    )
+    mocker.patch.object(
+        houseplant.db, "get_database_materialized_views", return_value=[]
+    )
+    mocker.patch.object(houseplant.db, "get_database_dictionaries", return_value=[])
+    mocker.patch.object(
+        houseplant.db, "get_sql_user_defined_functions", return_value=[]
+    )
+    mocker.patch.object(
+        houseplant.db.client,
+        "execute",
+        return_value=[["CREATE TABLE events (id UInt32) ENGINE = MergeTree"]],
+    )
+
+    houseplant.update_schema()
+
+    with open("ch/schema.sql") as f:
+        assert f.read() == (
+            "-- version: 20240101000000\n\n"
+            "-- TABLES\n\n"
+            "CREATE TABLE events (id UInt32) ENGINE = MergeTree;\n"
+        )
 
 
 def test_db_schema_load(houseplant, test_migration, mocker):
