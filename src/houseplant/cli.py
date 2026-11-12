@@ -19,6 +19,8 @@ app = typer.Typer(
     help="Database Migrations for ClickHouse",
 )
 
+JSON_OPTION = typer.Option(False, "--json", help="Output results as JSON instead of Rich console.")
+
 
 def get_houseplant() -> Houseplant:
     houseplant = Houseplant()
@@ -63,33 +65,42 @@ def generate(name: str):
 
 
 @app.command(name="migrate:status")
-def migrate_status():
+def migrate_status(json: bool = JSON_OPTION):
     """Show status of database migrations."""
     hp = get_houseplant()
-    hp.migrate_status()
+    hp.migrate_status(json_output=json)
 
 
 @app.command(name="migrate")
-def migrate(version: Optional[str] = typer.Argument(None)):
+def migrate(
+    version: Optional[str] = typer.Argument(None),
+    json: bool = JSON_OPTION,
+):
     """Run migrations up to specified version."""
     hp = get_houseplant()
-    hp.migrate(version)
+    hp.migrate(version, json_output=json)
 
 
 @app.command(name="migrate:up")
-def migrate_up(version: Optional[str] = typer.Argument(None)):
+def migrate_up(
+    version: Optional[str] = typer.Argument(None),
+    json: bool = JSON_OPTION,
+):
     """Run migrations up to specified version."""
     hp = get_houseplant()
     version = version or os.getenv("VERSION")
-    hp.migrate_up(version)
+    hp.migrate_up(version, json_output=json)
 
 
 @app.command(name="migrate:down")
-def migrate_down(version: Optional[str] = typer.Argument(None)):
+def migrate_down(
+    version: Optional[str] = typer.Argument(None),
+    json: bool = JSON_OPTION,
+):
     """Roll back migrations to specified version."""
     hp = get_houseplant()
     version = version or os.getenv("VERSION")
-    hp.migrate_down(version)
+    hp.migrate_down(version, json_output=json)
 
 
 @app.command(name="db:schema:load")

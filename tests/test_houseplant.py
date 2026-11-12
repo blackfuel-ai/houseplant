@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -818,6 +819,73 @@ def test_migrate_status_shows_hold_for_deferred(
     output = capsys.readouterr().out
     # Migration 2 should show as hold, not down
     assert "hold" in output
+
+
+def test_migrate_up_json_output(houseplant, test_migration, mocker, capsys):
+    """migrate_up --json should print a JSON object listing applied migrations."""
+    houseplant.env = "development"
+    mocker.patch.object(houseplant.db, "execute_migration")
+    mocker.patch.object(houseplant.db, "mark_migration_applied")
+    mocker.patch.object(houseplant.db, "get_applied_migrations", return_value=[])
+
+    houseplant.migrate_up(json_output=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output["applied"]) == 1
+    assert output["applied"][0]["version"] == "20240101000000"
+    assert output["applied"][0]["file"] == "20240101000000_test_migration.yml"
+    assert output.get("deferred", []) == []
+
+
+def test_migrate_up_json_output_deferred(houseplant, skip_envs_migrations, mocker, capsys):
+    """migrate_up --json should list deferred migrations under 'deferred'."""
+    houseplant.env = "production"
+    mocker.patch.object(houseplant.db, "execute_migration")
+    mocker.patch.object(houseplant.db, "mark_migration_applied")
+    mocker.patch.object(houseplant.db, "get_applied_migrations", return_value=[])
+
+    houseplant.migrate_up(json_output=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output["applied"]) == 2
+    assert len(output["deferred"]) == 1
+    assert output["deferred"][0]["version"] == "20240102000000"
+
+
+def test_migrate_up_json_no_rich_output(houseplant, test_migration, mocker, capsys):
+    """migrate_up --json must not emit any Rich console output."""
+    houseplant.env = "development"
+    mocker.patch.object(houseplant.db, "execute_migration")
+    mocker.patch.object(houseplant.db, "mark_migration_applied")
+    mocker.patch.object(houseplant.db, "get_applied_migrations", return_value=[])
+
+    houseplant.migrate_up(json_output=True)
+
+    captured = capsys.readouterr()
+    # stdout must be valid JSON and nothing else
+    json.loads(captured.out)
+    # stderr may have Rich spinner noise but stdout must be clean JSON
+    assert captured.out.strip().startswith("{")
+
+
+def test_migrate_status_json_output(houseplant, skip_envs_migrations, mocker, capsys):
+    """migrate_status --json should return structured migration status."""
+    houseplant.env = "production"
+    mocker.patch.object(
+        houseplant.db,
+        "get_applied_migrations",
+        return_value=[("20240101000000",), ("20240103000000",)],
+    )
+    mocker.patch.object(houseplant.db.client.connection, "database", "test_db", create=True)
+
+    houseplant.migrate_status(json_output=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "migrations" in output
+    by_version = {m["version"]: m for m in output["migrations"]}
+    assert by_version["20240101000000"]["status"] == "up"
+    assert by_version["20240102000000"]["status"] == "hold"
+    assert by_version["20240103000000"]["status"] == "up"
 
 
 def test_generate_includes_skip_envs_hint(houseplant, tmp_path, mocker):
