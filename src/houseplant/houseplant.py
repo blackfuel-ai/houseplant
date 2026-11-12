@@ -453,15 +453,19 @@ production:
                     processed_tables.add(qualified_name)
                     break
 
+        # SQL user-defined functions are global, not tied to a migration's
+        # table, and come first so the objects that call them load after them.
+        function_statements = self.db.get_sql_user_defined_functions()
+
         # Write schema file
+        sections = [f"-- version: {latest_version}"]
+        for title, statements in (
+            ("FUNCTIONS", function_statements),
+            ("TABLES", table_statements),
+            ("DICTIONARIES", dict_statements),
+            ("MATERIALIZED VIEWS", mv_statements),
+        ):
+            if statements:
+                sections.append(f"-- {title}\n\n" + "\n;\n\n".join(statements) + ";")
         with open("ch/schema.sql", "w") as f:
-            f.write(f"-- version: {latest_version}\n\n")
-            if table_statements:
-                f.write("-- TABLES\n\n")
-                f.write("\n;\n\n".join(table_statements) + ";")
-            if dict_statements:
-                f.write("\n\n-- DICTIONARIES\n\n")
-                f.write("\n;\n\n".join(dict_statements) + ";")
-            if mv_statements:
-                f.write("\n\n-- MATERIALIZED VIEWS\n\n")
-                f.write("\n;\n\n".join(mv_statements) + ";")
+            f.write("\n\n".join(sections) + "\n")

@@ -114,9 +114,10 @@ Update Schema
 
 The schema file (``ch/schema.sql``) is automatically updated after each migration. It contains:
 
+- SQL user-defined function definitions, ahead of the objects that may call them
 - Table definitions
-- Materialized view definitions
 - Dictionary definitions
+- Materialized view definitions
 
 Environment Support
 -------------------

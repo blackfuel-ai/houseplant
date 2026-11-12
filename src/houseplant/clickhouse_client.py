@@ -231,6 +231,18 @@ class ClickHouseClient:
             ORDER BY name
         """)
 
+    def get_sql_user_defined_functions(self):
+        """Get the CREATE statement of every SQL user-defined function, by name."""
+        return [
+            row[0]
+            for row in self.client.execute("""
+                SELECT create_query
+                FROM system.functions
+                WHERE origin = 'SQLUserDefined'
+                ORDER BY name
+            """)
+        ]
+
     def get_applied_migrations(self):
         """Get list of applied migrations."""
         return self.client.execute("""
